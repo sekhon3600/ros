@@ -32,10 +32,10 @@ class DistanceReader:
 
         ########## YOUR CODE GOES HERE ##########
         # Calculate the distance the turtle has travelled and publish it
-        pos_x=msg.x
-        pos_y=msg.y 
+        x_coordinate=msg.x
+        y_coordinate=msg.y 
 
-        dist = math.sqrt((pos_x)**2 + (pos_y)**2)
+        dist = math.sqrt(( x_coordinate)**2 + (y_coordinate)**2)
         
         rospy.loginfo("distance travelled by turtle: %s", dist)
        
