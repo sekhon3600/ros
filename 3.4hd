@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+
+import rospy
+from geometry_msgs.msg import Twist, Point
+from turtlesim.msg import Pose
+import math
+
+class TurtlesimStraightsAndTurns:
+    def _init_(self):
+        self.current_pose = Pose()
+        self.goal_position = Point()
+        self.goal_active = False
+        self.state = 'IDLE'  # States: IDLE, ROTATE, MOVE
+        self.linear_speed = rospy.get_param('~linear_speed', 1.0)
+        self.angular_speed = rospy.get_param('~angular_speed', 1.0)
+        self.distance_tolerance = rospy.get_param('~distance_tolerance', 0.1)
+        self.angle_tolerance = rospy.get_param('~angle_tolerance', 0.01)
+
+        rospy.init_node('straights_and_turns_turtle_node', anonymous=True)
+        rospy.Subscriber("/goal_position", Point, self.goal_position_callback)
+        rospy.Subscriber("/turtle1/pose", Pose, self.pose_callback)
+        self.velocity_publisher = rospy.Publisher('/turtle1/cmd_vel', Twist, queue_size=10)
+
+        timer_period = 0.01
+        rospy.Timer(rospy.Duration(timer_period), self.timer_callback)
+
+        rospy.loginfo("Initialized node!")
+        rospy.spin()
+
+    def pose_callback(self, msg):
+        self.current_pose = msg
+
+    def goal_position_callback(self, msg):
+        self.goal_position = msg
+        self.goal_active = True
+        self.state = 'ROTATE'
+        rospy.loginfo(f"New goal received: ({msg.x}, {msg.y})")
+
+    def compute_angular_difference(self, target_angle):
+        angle_diff = target_angle - self.current_pose.theta
+        # Normalize angle_diff to be within [-pi, pi]
+        if angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        if angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+        return angle_diff
+
+    def timer_callback(self, event):
+        if not self.goal_active:
+            return
+
+        distance_to_goal = math.sqrt((self.goal_position.x - self.current_pose.x) ** 2 +
+                                     (self.goal_position.y - self.current_pose.y) ** 2)
+        angle_to_goal = math.atan2(self.goal_position.y - self.current_pose.y,
+                                   self.goal_position.x - self.current_pose.x)
+        angle_diff = self.compute_angular_difference(angle_to_goal)
+
+        twist_msg = Twist()
+
+        if self.state == 'ROTATE':
+            if abs(angle_diff) > self.angle_tolerance:
+                twist_msg.angular.z = self.angular_speed if angle_diff > 0 else -self.angular_speed
+                rospy.loginfo(f"Rotating to goal: angle_diff={angle_diff}")
+            else:
+                twist_msg.angular.z = 0
+                self.state = 'MOVE'
+                rospy.loginfo("Rotation complete. Moving to goal.")
+        
+        elif self.state == 'MOVE':
+            if distance_to_goal > self.distance_tolerance:
+                twist_msg.linear.x = self.linear_speed
+                rospy.loginfo(f"Moving to goal: distance_to_goal={distance_to_goal}")
+            else:
+                twist_msg.linear.x = 0
+                self.state = 'IDLE'
+                self.goal_active = False
+                rospy.loginfo("Goal reached.")
+
+        self.velocity_publisher.publish(twist_msg)
+
+if _name_ == '_main_':
+    try:
+        turtlesim_straights_and_turns = TurtlesimStraightsAndTurns()
+    except rospy.ROSInterruptException:
+        pass
