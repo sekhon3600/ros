@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+
+import rospy
+from duckietown_msgs.msg import Twist2DStamped, AprilTagDetectionArray
+
+class FollowerOfTarget:
+    def __init__(self):
+        # Start the ROS node
+        rospy.init_node('follower_of_target_node', anonymous=True)
+        rospy.loginfo("Follower of Target Node has been initialized")
+
+        # Ensure clean shutdown
+        rospy.on_shutdown(self.shutdown_procedure)
+        
+        ##### Initialize Publisher and Subscriber. Replace "duckie" with your robot's name #####
+        self.velocity_publisher = rospy.Publisher('/duckie/car_cmd_switch_node/cmd', Twist2DStamped, queue_size=1)
+        rospy.Subscriber('/duckie/apriltag_detector_node/detections', AprilTagDetectionArray, self.april_tag_callback, queue_size=1)
+        ######################################################################################
+
+        # Flag to track object detection status
+        self.is_object_detected = False
+
+        rospy.loginfo("Follower of Target Node Setup Completed")
+        rospy.spin()  # Keep node running and handle callbacks
+
+    # Callback for AprilTag detections
+    def april_tag_callback(self, data):
+        rospy.loginfo("AprilTag Detection Callback triggered")
+        if not data.detections:
+            self.is_object_detected = False
+            self.search_for_object()
+        else:
+            self.is_object_detected = True
+            self.track_object(data.detections)
+
+    # Ensure robot stops upon node shutdown
+    def shutdown_procedure(self):
+        rospy.loginfo("Node shutting down. Stopping robot...")
+        self.halt_robot()
+
+    # Send zero velocity to stop the robot
+    def halt_robot(self):
+        rospy.loginfo("Halting Robot")
+        halt_message = Twist2DStamped()
+        halt_message.header.stamp = rospy.Time.now()
+        halt_message.v = 0.0
+        halt_message.omega = 0.0
+        self.velocity_publisher.publish(halt_message)
+
+    # Rotate robot to find an object
+    def search_for_object(self):
+        rospy.loginfo("Searching for object...")
+        search_message = Twist2DStamped()
+        search_message.header.stamp = rospy.Time.now()
+        search_message.v = 0.0
+        search_message.omega = 2.0  # Rotate counter-clockwise
+        self.velocity_publisher.publish(search_message)
+
+    # Track the detected object
+    def track_object(self, detections):
+        # Assume we deal with the first detection
+        detection = detections[0]
+
+        x_coord = detection.transform.translation.x
+        y_coord = detection.transform.translation.y
+        z_coord = detection.transform.translation.z
+
+        rospy.loginfo("Detected object at x: %f, y: %f, z: %f", x_coord, y_coord, z_coord)
+
+        # Adjust rotation to center the object
+        tracking_message = Twist2DStamped()
+        tracking_message.header.stamp = rospy.Time.now()
+        tracking_message.v = 0.0
+
+        # Determine rotation direction based on object position
+        if x_coord > 0.1:  # Object is to the right
+            tracking_message.omega = -2.0  # Rotate clockwise
+        elif x_coord < -0.1:  # Object is to the left
+            tracking_message.omega = 2.0  # Rotate counter-clockwise
+        else:
+            tracking_message.omega = 0.0  # Object is centered
+
+        self.velocity_publisher.publish(tracking_message)
+
+if __name__ == '__main__':
+    try:
+        follower = FollowerOfTarget()
+    except rospy.ROSInterruptException:
+        pass
