@@ -10,6 +10,7 @@ class SquareDriver:
         self.cmd_msg = Twist2DStamped()
         self.tick_count = 0
         self.front_distance = 0
+        self.stop_distance_threshold = 0.1  # Stopping distance threshold in meters
 
         # Initialize ROS node
         rospy.init_node('square_driver_node', anonymous=True)
@@ -37,10 +38,12 @@ class SquareDriver:
     def drive_straight(self, distance, speed):
         start_ticks = self.tick_count
         while abs(self.tick_count - start_ticks) < (distance * 100):
-            if self.front_distance < 0.1:
+            if self.front_distance < self.stop_distance_threshold:
                 self.stop()
-                rospy.sleep(1)
-                continue
+                rospy.loginfo("Obstacle detected, waiting...")
+                while self.front_distance < self.stop_distance_threshold:
+                    rospy.sleep(0.1)
+                rospy.loginfo("Obstacle removed, resuming drive")
             self.cmd_msg.header.stamp = rospy.Time.now()
             self.cmd_msg.v = speed
             self.cmd_msg.omega = 0.0
@@ -71,23 +74,6 @@ class SquareDriver:
         for _ in range(4):
             self.drive_straight(1, 0.5)
             self.turn(5, 1)
-        self.stop()
-
-    def straight_move(self):
-        self.cmd_msg.header.stamp = rospy.Time.now()
-        self.cmd_msg.v = 0.5
-        self.cmd_msg.omega = 0.0
-        self.publisher.publish(self.cmd_msg)
-        rospy.loginfo("Moving straight")
-        rospy.sleep(1)
-
-    def rotate(self):
-        self.cmd_msg.header.stamp = rospy.Time.now()
-        self.cmd_msg.v = 0.0
-        self.cmd_msg.omega = 1.0
-        self.publisher.publish(self.cmd_msg)
-        rospy.loginfo("Rotating")
-        rospy.sleep(0.7)
         self.stop()
 
 if __name__ == '__main__':
