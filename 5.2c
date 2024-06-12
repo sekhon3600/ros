@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+
+import rospy
+from duckietown_msgs.msg import Twist2DStamped
+from duckietown_msgs.msg import FSMState
+from duckietown_msgs.msg import WheelEncoderStamped
+from sensor_msgs.msg import Range
+
+class SquareDriver:
+    def __init__(self):
+        # Initialize the node
+        rospy.init_node('square_driver_node', anonymous=True)
+        
+        # Initialize message and state variables
+        self.motion_command = Twist2DStamped()
+        self.encoder_ticks = 0
+        self.front_distance = 0
+        
+        # Setup publishers and subscribers
+        self.pub_cmd = rospy.Publisher('/shravel/car_cmd_switch_node/cmd', Twist2DStamped, queue_size=1)
+        rospy.Subscriber('/duckie/fsm_node/mode', FSMState, self.fsm_callback, queue_size=1)
+        rospy.Subscriber('/duckie/left_wheel_encoder_node/tick', WheelEncoderStamped, self.encoder_callback, queue_size=1)
+        rospy.Subscriber('/duckie/front_center_tof_driver_node/range', Range, self.range_callback, queue_size=1)
+
+    def fsm_callback(self, msg):
+        rospy.loginfo("Current State: %s", msg.state)
+        if msg.state == "NORMAL_JOYSTICK_CONTROL":
+            self.halt_robot()
+        elif msg.state == "LANE_FOLLOWING":
+            rospy.sleep(1)  # Wait briefly to ensure node readiness
+            self.execute_square_path()
+
+    def encoder_callback(self, msg):
+        self.encoder_ticks = msg.data
+
+    def range_callback(self, msg):
+        self.front_distance = msg.range
+
+    def move_distance(self, distance, speed):
+        # Calculate encoder ticks required for the specified distance
+        initial_ticks = self.encoder_ticks
+        target_ticks = initial_ticks + int(distance * 100)  # Example conversion factor
+
+        while abs(self.encoder_ticks - initial_ticks) < target_ticks:
+            self.motion_command.header.stamp = rospy.Time.now()
+            self.motion_command.v = speed
+            self.motion_command.omega = 0.0
+            self.pub_cmd.publish(self.motion_command)
+            rospy.loginfo("Moving Forward")
+        
+        self.halt_robot()
+
+    def rotate_angle(self, angle, angular_speed):
+        # Calculate encoder ticks required for the specified rotation
+        initial_ticks = self.encoder_ticks
+        target_ticks = initial_ticks + int(angle * 25)  # Example conversion factor
+
+        while abs(self.encoder_ticks - initial_ticks) < target_ticks:
+            self.motion_command.header.stamp = rospy.Time.now()
+            self.motion_command.v = 0.0
+            self.motion_command.omega = angular_speed
+            self.pub_cmd.publish(self.motion_command)
+            rospy.loginfo("Rotating")
+        
+        self.halt_robot()
+
+    def halt_robot(self):
+        # Publish zero velocities to stop the robot
+        self.motion_command.header.stamp = rospy.Time.now()
+        self.motion_command.v = 0.0
+        self.motion_command.omega = 0.0
+        self.pub_cmd.publish(self.motion_command)
+
+    def execute_square_path(self):
+        for _ in range(4):
+            self.move_distance(1, 0.5)
+            self.rotate_angle(90, 1)
+        self.halt_robot()
+
+    def run(self):
+        rospy.spin()
+
+if __name__ == '__main__':
+    try:
+        square_driver = SquareDriver()
+        square_driver.run()
+    except rospy.ROSInterruptException:
+        pass
