@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+
+import rospy
+from duckietown_msgs.msg import Twist2DStamped, FSMState, WheelEncoderStamped
+from sensor_msgs.msg import Range
+
+class SquareDriver:
+    def __init__(self):
+        # Set up initial variables
+        self.cmd_msg = Twist2DStamped()
+        self.tick_count = 0
+        self.front_distance = 0
+
+        # Initialize ROS node
+        rospy.init_node('square_driver_node', anonymous=True)
+
+        # Set up publishers and subscribers
+        self.publisher = rospy.Publisher('/duckie/car_cmd_switch_node/cmd', Twist2DStamped, queue_size=1)
+        rospy.Subscriber('/duckie/fsm_node/mode', FSMState, self.fsm_state_callback, queue_size=1)
+        rospy.Subscriber('/duckie/left_wheel_encoder_node/tick', WheelEncoderStamped, self.encoder_callback, queue_size=1)
+        rospy.Subscriber('/duckie/front_center_tof_driver_node/range', Range, self.range_callback, queue_size=1)
+
+    def fsm_state_callback(self, msg):
+        rospy.loginfo("Current State: %s", msg.state)
+        if msg.state == "NORMAL_JOYSTICK_CONTROL":
+            self.stop()
+        elif msg.state == "LANE_FOLLOWING":
+            rospy.sleep(1)  # Give the system a moment to be ready
+            self.execute_square_drive()
+
+    def encoder_callback(self, msg):
+        self.tick_count = msg.data
+
+    def range_callback(self, msg):
+        self.front_distance = msg.range
+
+    def drive_straight(self, distance, speed):
+        start_ticks = self.tick_count
+        while abs(self.tick_count - start_ticks) < (distance * 100):
+            if self.front_distance < 0.1:
+                self.stop()
+                rospy.sleep(1)
+                continue
+            self.cmd_msg.header.stamp = rospy.Time.now()
+            self.cmd_msg.v = speed
+            self.cmd_msg.omega = 0.0
+            self.publisher.publish(self.cmd_msg)
+            rospy.loginfo("Driving forward")
+        self.stop()
+
+    def turn(self, angle, speed):
+        start_ticks = self.tick_count
+        while abs(self.tick_count - start_ticks) < (angle * 25):
+            self.cmd_msg.header.stamp = rospy.Time.now()
+            self.cmd_msg.v = 0.0
+            self.cmd_msg.omega = speed
+            self.publisher.publish(self.cmd_msg)
+            rospy.loginfo("Turning")
+        self.stop()
+
+    def stop(self):
+        self.cmd_msg.header.stamp = rospy.Time.now()
+        self.cmd_msg.v = 0.0
+        self.cmd_msg.omega = 0.0
+        self.publisher.publish(self.cmd_msg)
+
+    def run(self):
+        rospy.spin()
+
+    def execute_square_drive(self):
+        for _ in range(4):
+            self.drive_straight(1, 0.5)
+            self.turn(5, 1)
+        self.stop()
+
+    def straight_move(self):
+        self.cmd_msg.header.stamp = rospy.Time.now()
+        self.cmd_msg.v = 0.5
+        self.cmd_msg.omega = 0.0
+        self.publisher.publish(self.cmd_msg)
+        rospy.loginfo("Moving straight")
+        rospy.sleep(1)
+
+    def rotate(self):
+        self.cmd_msg.header.stamp = rospy.Time.now()
+        self.cmd_msg.v = 0.0
+        self.cmd_msg.omega = 1.0
+        self.publisher.publish(self.cmd_msg)
+        rospy.loginfo("Rotating")
+        rospy.sleep(0.7)
+        self.stop()
+
+if __name__ == '__main__':
+    try:
+        square_driver = SquareDriver()
+        square_driver.run()
+    except rospy.ROSInterruptException:
+        pass
