@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+
+import rospy
+from duckietown_msgs.msg import Twist2DStamped
+from duckietown_msgs.msg import AprilTagDetectionArray
+
+class TargetFollower:
+    def __init__(self):
+        # Initialize the ROS node
+        rospy.init_node('target_follower_node', anonymous=True)
+        
+        # Register clean-up function
+        rospy.on_shutdown(self.clean_shutdown)
+        
+        # Initialize publisher and subscriber
+        self.cmd_pub = rospy.Publisher('/duckie/car_cmd_switch_node/cmd', Twist2DStamped, queue_size=1)
+        rospy.Subscriber('/duckie/apriltag_detector_node/detections', AprilTagDetectionArray, self.tag_callback, queue_size=1)
+        
+        # Keep the node running
+        rospy.spin()
+
+    def tag_callback(self, msg):
+        self.process_detections(msg.detections)
+        
+    def clean_shutdown(self):
+        rospy.loginfo("Shutting down... stopping the robot.")
+        self.stop_robot()
+        
+    def stop_robot(self):
+        stop_msg = Twist2DStamped()
+        stop_msg.header.stamp = rospy.Time.now()
+        stop_msg.v = 0.0
+        stop_msg.omega = 0.0
+        self.cmd_pub.publish(stop_msg)
+    
+    def process_detections(self, detections):
+        if len(detections) == 2:
+            x1, y1, z1 = detections[0].transform.translation.x, detections[0].transform.translation.y, detections[0].transform.translation.z
+            rospy.loginfo("Detection 1 - x: %f, y: %f, z: %f", x1, y1, z1)
+            
+            x2, y2, z2 = detections[1].transform.translation.x, detections[1].transform.translation.y, detections[1].transform.translation.z
+            rospy.loginfo("Detection 2 - x: %f, y: %f, z: %f", x2, y2, z2)
+            
+            rospy.sleep(1)
+            
+            if z2 > z1:
+                target_x = x1
+                target_z = z1
+            else:
+                target_x = x2
+                target_z = z2
+
+            if target_z > 0.15:
+                self.move_forward()
+            elif target_z < 0.10:
+                self.move_backward()
+            
+            if target_x > 0.05:
+                self.turn_left()
+            elif target_x < -0.05:
+                self.turn_right()
+        else:
+            self.stop_robot()
+
+    def move_forward(self):
+        move_msg = Twist2DStamped()
+        move_msg.header.stamp = rospy.Time.now()
+        move_msg.v = 0.2
+        move_msg.omega = 0
+        self.cmd_pub.publish(move_msg)
+        rospy.sleep(0.2)
+        self.stop_robot()
+
+    def move_backward(self):
+        move_msg = Twist2DStamped()
+        move_msg.header.stamp = rospy.Time.now()
+        move_msg.v = -0.2
+        move_msg.omega = 0
+        self.cmd_pub.publish(move_msg)
+        rospy.sleep(0.2)
+        self.stop_robot()
+
+    def turn_left(self):
+        turn_msg = Twist2DStamped()
+        turn_msg.header.stamp = rospy.Time.now()
+        turn_msg.v = 0
+        turn_msg.omega = -0.2
+        self.cmd_pub.publish(turn_msg)
+        rospy.sleep(0.2)
+        self.stop_robot()
+
+    def turn_right(self):
+        turn_msg = Twist2DStamped()
+        turn_msg.header.stamp = rospy.Time.now()
+        turn_msg.v = 0
+        turn_msg.omega = 0.2
+        self.cmd_pub.publish(turn_msg)
+        rospy.sleep(0.2)
+        self.stop_robot()
+
+if __name__ == '__main__':
+    try:
+        TargetFollower()
+    except rospy.ROSInterruptException:
+        pass
